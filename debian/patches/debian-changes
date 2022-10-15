@@ -1,0 +1,446 @@
+diff --git a/azurelinuxagent/agent.py b/azurelinuxagent/agent.py
+index b70429a1..9d5955b4 100644
+--- a/azurelinuxagent/agent.py
++++ b/azurelinuxagent/agent.py
+@@ -65,6 +65,7 @@ class AgentCommands(object):
+     CollectLogs = "collect-logs"
+     SetupFirewall = "setup-firewall"
+     Provision = "provision"
++    Resourcedisk = "resourcedisk"
+ 
+ 
+ class Agent(object):
+@@ -190,6 +191,11 @@ class Agent(object):
+         update_handler = get_update_handler()
+         update_handler.run(debug)
+ 
++    def resourcedisk(self):
++        from azurelinuxagent.daemon.resourcedisk import get_resourcedisk_handler
++        resourcedisk_handler = get_resourcedisk_handler()
++        resourcedisk_handler.run()
++
+     def show_configuration(self):
+         configuration = conf.get_configuration()
+         for k in sorted(configuration.keys()):
+@@ -271,6 +277,8 @@ def main(args=None):
+                 agent.daemon()
+             elif command == AgentCommands.RunExthandlers:
+                 agent.run_exthandlers(debug)
++            elif command == AgentCommands.Resourcedisk:
++                agent.resourcedisk()
+             elif command == AgentCommands.ShowConfig:
+                 agent.show_configuration()
+             elif command == AgentCommands.CollectLogs:
+@@ -325,6 +333,8 @@ def parse_args(sys_args):
+             cmd = AgentCommands.RegisterService
+         elif re.match(regex_cmd_format.format(AgentCommands.RunExthandlers), arg):
+             cmd = AgentCommands.RunExthandlers
++        elif re.match(regex_cmd_format.format(AgentCommands.Resourcedisk), arg):
++            cmd = AgentCommands.Resourcedisk
+         elif re.match(regex_cmd_format.format(AgentCommands.Version), arg):
+             cmd = AgentCommands.Version
+         elif re.match(regex_cmd_format.format("verbose"), arg):
+diff --git a/azurelinuxagent/common/osutil/debian.py b/azurelinuxagent/common/osutil/debian.py
+index 5302b059..c0041a98 100644
+--- a/azurelinuxagent/common/osutil/debian.py
++++ b/azurelinuxagent/common/osutil/debian.py
+@@ -33,20 +33,25 @@ import azurelinuxagent.common.utils.textutil as textutil  # pylint: disable=W061
+ from azurelinuxagent.common.osutil.default import DefaultOSUtil
+ 
+ 
+-class DebianOSBaseUtil(DefaultOSUtil):
++class DebianOSUtil(DefaultOSUtil):
+ 
+     def __init__(self):
+-        super(DebianOSBaseUtil, self).__init__()
++        super(DebianOSUtil, self).__init__()
+         self.jit_enabled = True
++        self.service_name = self.get_service_name()
++
++    @staticmethod
++    def get_service_name():
++        return "walinuxagent"
+ 
+     def restart_ssh_service(self):
+         return shellutil.run("systemctl --job-mode=ignore-dependencies try-reload-or-restart ssh", chk_err=False)
+ 
+     def stop_agent_service(self):
+-        return shellutil.run("service azurelinuxagent stop", chk_err=False)
++        return shellutil.run("systemctl stop {0}".format(self.service_name), chk_err=False)
+ 
+     def start_agent_service(self):
+-        return shellutil.run("service azurelinuxagent start", chk_err=False)
++        return shellutil.run("systemctl start {0}".format(self.service_name), chk_err=False)
+ 
+     def start_network(self):
+         pass
+@@ -59,21 +64,3 @@ class DebianOSBaseUtil(DefaultOSUtil):
+ 
+     def get_dhcp_lease_endpoint(self):
+         return self.get_endpoint_from_leases_path('/var/lib/dhcp/dhclient.*.leases')
+-
+-
+-class DebianOSModernUtil(DebianOSBaseUtil):
+-
+-    def __init__(self):
+-        super(DebianOSModernUtil, self).__init__()
+-        self.jit_enabled = True
+-        self.service_name = self.get_service_name()
+-
+-    @staticmethod
+-    def get_service_name():
+-        return "walinuxagent"
+-
+-    def stop_agent_service(self):
+-        return shellutil.run("systemctl stop {0}".format(self.service_name), chk_err=False)
+-
+-    def start_agent_service(self):
+-        return shellutil.run("systemctl start {0}".format(self.service_name), chk_err=False)
+diff --git a/azurelinuxagent/common/osutil/default.py b/azurelinuxagent/common/osutil/default.py
+index 4c706a9e..322da792 100644
+--- a/azurelinuxagent/common/osutil/default.py
++++ b/azurelinuxagent/common/osutil/default.py
+@@ -416,9 +416,9 @@ class DefaultOSUtil(object):
+             return
+ 
+         if expiration is not None:
+-            cmd = ["useradd", "-m", username, "-e", expiration]
++            cmd = ["useradd", "-m", username, "-s", "/bin/bash", "-e", expiration]
+         else:
+-            cmd = ["useradd", "-m", username]
++            cmd = ["useradd", "-m", username, "-s", "/bin/bash"]
+ 
+         if comment is not None:
+             cmd.extend(["-c", comment])
+diff --git a/azurelinuxagent/common/osutil/factory.py b/azurelinuxagent/common/osutil/factory.py
+index 5b7db424..f44dcfdf 100644
+--- a/azurelinuxagent/common/osutil/factory.py
++++ b/azurelinuxagent/common/osutil/factory.py
+@@ -25,7 +25,7 @@ from .arch import ArchUtil
+ from .bigip import BigIpOSUtil
+ from .clearlinux import ClearLinuxUtil
+ from .coreos import CoreOSUtil
+-from .debian import DebianOSBaseUtil, DebianOSModernUtil
++from .debian import DebianOSUtil
+ from .default import DefaultOSUtil
+ from .freebsd import FreeBSDOSUtil
+ from .gaia import GaiaOSUtil
+@@ -83,7 +83,7 @@ def _get_osutil(distro_name, distro_code_name, distro_version, distro_full_name)
+         return AlpineOSUtil()
+ 
+     if distro_name == "kali":
+-        return DebianOSBaseUtil()
++        return DebianOSUtil()
+ 
+     if distro_name in ("flatcar", "coreos") or distro_code_name in ("flatcar", "coreos"):
+         return CoreOSUtil()
+@@ -97,12 +97,10 @@ def _get_osutil(distro_name, distro_code_name, distro_version, distro_full_name)
+         return SUSEOSUtil()
+ 
+     if distro_name == "debian":
+-        if "sid" in distro_version or Version(distro_version) > Version("7"):
+-            return DebianOSModernUtil()
++        return DebianOSUtil()
+ 
+-        return DebianOSBaseUtil()
+-
+-    if distro_name in ("redhat", "rhel", "centos", "oracle", "almalinux", "cloudlinux"):
++    if distro_name in ("redhat", "rhel", "centos", "oracle", "almalinux",
++                       "cloudlinux", "rocky"):
+         if Version(distro_version) < Version("7"):
+             return Redhat6xOSUtil()
+ 
+diff --git a/azurelinuxagent/daemon/resourcedisk/default.py b/azurelinuxagent/daemon/resourcedisk/default.py
+index df4bb76f..a6cffb00 100644
+--- a/azurelinuxagent/daemon/resourcedisk/default.py
++++ b/azurelinuxagent/daemon/resourcedisk/default.py
+@@ -18,6 +18,7 @@
+ import os
+ import re
+ import stat
++import subprocess
+ import sys
+ import threading
+ from time import sleep
+@@ -31,6 +32,7 @@ import azurelinuxagent.common.utils.shellutil as shellutil
+ from azurelinuxagent.common.exception import ResourceDiskError
+ from azurelinuxagent.common.osutil import get_osutil
+ from azurelinuxagent.common.version import AGENT_NAME
++from azurelinuxagent.pa.provision.cloudinit import cloud_init_is_enabled
+ 
+ DATALOSS_WARNING_FILE_NAME = "DATALOSS_WARNING_README.txt"
+ DATA_LOSS_WARNING = """\
+@@ -55,6 +57,10 @@ class ResourceDiskHandler(object):
+         disk_thread.start()
+ 
+     def run(self):
++        if cloud_init_is_enabled():
++            logger.info('Using cloud-init for provisioning')
++            return
++
+         mount_point = None
+         if conf.get_resourcedisk_format():
+             mount_point = self.activate_resource_disk()
+@@ -89,9 +95,8 @@ class ResourceDiskHandler(object):
+             logger.error("Failed to enable swap {0}", e)
+ 
+     def reread_partition_table(self, device):
+-        if shellutil.run("sfdisk -R {0}".format(device), chk_err=False):
+-            shellutil.run("blockdev --rereadpt {0}".format(device),
+-                          chk_err=False)
++        shellutil.run("blockdev --rereadpt {0}".format(device),
++                      chk_err=False)
+ 
+     def mount_resource_disk(self, mount_point):
+         device = self.osutil.device_for_ide_port(1)
+@@ -118,7 +123,7 @@ class ResourceDiskHandler(object):
+             raise ResourceDiskError(msg=msg, inner=ose)
+ 
+         logger.info("Examining partition table")
+-        ret = shellutil.run_get_output("parted {0} print".format(device))
++        ret = shellutil.run_get_output("blkid -o value -s PTTYPE {0}".format(device))
+         if ret[0]:
+             raise ResourceDiskError("Could not determine partition info for "
+                                     "{0}: {1}".format(device, ret[1]))
+@@ -129,8 +134,9 @@ class ResourceDiskHandler(object):
+         mkfs_string = "mkfs.{0} -{2} {1}".format(
+             self.fs, partition, force_option)
+ 
+-        if "gpt" in ret[1]:
++        if ret[1].strip() == "gpt":
+             logger.info("GPT detected, finding partitions")
++            ret = shellutil.run_get_output("parted {0} print".format(device))
+             parts = [x for x in ret[1].split("\n") if
+                      re.match(r"^\s*[0-9]+", x)]
+             logger.info("Found {0} GPT partition(s).", len(parts))
+@@ -148,21 +154,13 @@ class ResourceDiskHandler(object):
+                 shellutil.run(mkfs_string)
+         else:
+             logger.info("GPT not detected, determining filesystem")
+-            ret = self.change_partition_type(
+-                suppress_message=True,
+-                option_str="{0} 1 -n".format(device))
+-            ptype = ret[1].strip()
+-            if ptype == "7" and self.fs != "ntfs":
++            ret = shellutil.run_get_output("blkid -o value -s TYPE {0}".format(partition))
++            if ret[1].strip() == 'ntfs' and self.fs != 'ntfs':
+                 logger.info("The partition is formatted with ntfs, updating "
+                             "partition type to 83")
+-                self.change_partition_type(
+-                    suppress_message=False,
+-                    option_str="{0} 1 83".format(device))
+-                self.reread_partition_table(device)
++                subprocess.call(['sfdisk', '-c', '-f', device, '1', '83'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                 logger.info("Format partition [{0}]", mkfs_string)
+                 shellutil.run(mkfs_string)
+-            else:
+-                logger.info("The partition type is {0}", ptype)
+ 
+         mount_options = conf.get_resourcedisk_mountoptions()
+         mount_string = self.get_mount_string(mount_options,
+@@ -217,39 +215,6 @@ class ResourceDiskHandler(object):
+                     self.fs)
+         return mount_point
+ 
+-    def change_partition_type(self, suppress_message, option_str):
+-        """
+-            use sfdisk to change partition type.
+-            First try with --part-type; if fails, fall back to -c
+-        """
+-
+-        option_to_use = '--part-type'
+-        command = "sfdisk {0} {1} {2}".format(
+-            option_to_use, '-f' if suppress_message else '', option_str)
+-        err_code, output = shellutil.run_get_output(
+-            command, chk_err=False, log_cmd=True)
+-
+-        # fall back to -c
+-        if err_code != 0:
+-            logger.info(
+-                "sfdisk with --part-type failed [{0}], retrying with -c",
+-                err_code)
+-            option_to_use = '-c'
+-            command = "sfdisk {0} {1} {2}".format(
+-                option_to_use, '-f' if suppress_message else '', option_str)
+-            err_code, output = shellutil.run_get_output(command, log_cmd=True)
+-
+-        if err_code == 0:
+-            logger.info('{0} succeeded',
+-                        command)
+-        else:
+-            logger.error('{0} failed [{1}: {2}]',
+-                         command,
+-                         err_code,
+-                         output)
+-
+-        return err_code, output
+-
+     def get_mount_string(self, mount_options, partition, mount_point):
+         if mount_options is not None:
+             return 'mount -t {0} -o {1} {2} {3}'.format(
+diff --git a/azurelinuxagent/ga/update.py b/azurelinuxagent/ga/update.py
+index f35338ce..5acdd7d5 100644
+--- a/azurelinuxagent/ga/update.py
++++ b/azurelinuxagent/ga/update.py
+@@ -216,6 +216,9 @@ class UpdateHandler(object):
+         if child_args is not None:
+             agent_cmd = "{0} {1}".format(agent_cmd, child_args)
+ 
++        env = os.environ.copy()
++        env['PYTHONDONTWRITEBYTECODE'] = '1'
++
+         try:
+ 
+             # Launch the correct Python version for python-based agents
+@@ -231,7 +234,7 @@ class UpdateHandler(object):
+                 cwd=agent_dir,
+                 stdout=sys.stdout,
+                 stderr=sys.stderr,
+-                env=os.environ)
++                env=env)
+ 
+             logger.verbose(u"Agent {0} launched with command '{1}'", agent_name, agent_cmd)
+ 
+diff --git a/config/debian/waagent.conf b/config/debian/waagent.conf
+index 6bc36604..281ebea4 100644
+--- a/config/debian/waagent.conf
++++ b/config/debian/waagent.conf
+@@ -8,7 +8,7 @@ Extensions.Enabled=y
+ 
+ # Which provisioning agent to use. Supported values are "auto" (default), "waagent",
+ # "cloud-init", or "disabled".
+-Provisioning.Agent=auto
++Provisioning.Agent=cloud-init
+ 
+ # Password authentication for root account will be unavailable.
+ Provisioning.DeleteRootPassword=y
+@@ -110,7 +110,7 @@ OS.SshDir=/etc/ssh
+ # OS.EnableRDMA=y
+ 
+ # Enable or disable goal state processing auto-update, default is enabled
+-# AutoUpdate.Enabled=y
++AutoUpdate.Enabled=n
+ 
+ # Determine the update family, this should not be changed
+ # AutoUpdate.GAFamily=Prod
+diff --git a/setup.py b/setup.py
+index 12c9e1d6..5ca37c49 100755
+--- a/setup.py
++++ b/setup.py
+@@ -39,9 +39,8 @@ def set_files(data_files, dest=None, src=None):
+ 
+ 
+ def set_bin_files(data_files, dest, src=None):
+-    if src is None:
+-        src = ["bin/waagent", "bin/waagent2.0"]
+-    data_files.append((dest, src))
++    pass
++
+ 
+ 
+ def set_conf_files(data_files, dest="/etc", src=None):
+@@ -294,14 +293,7 @@ class install(_install):  # pylint: disable=C0103
+             osutil.start_agent_service()
+ 
+ 
+-# Note to packagers and users from source.
+-# In version 3.5 of Python distribution information handling in the platform
+-# module was deprecated. Depending on the Linux distribution the
+-# implementation may be broken prior to Python 3.7 wher the functionality
+-# will be removed from Python 3
+-requires = []  # pylint: disable=invalid-name
+-if float(sys.version[:3]) >= 3.7:
+-    requires = ['distro']  # pylint: disable=invalid-name
++requires = ['distro']
+ 
+ modules = []  # pylint: disable=invalid-name
+ 
+@@ -322,6 +314,9 @@ setuptools.setup(
+     install_requires=requires,
+     cmdclass={
+         'install': install
+-    }
++    },
++    entry_points = {
++        'console_scripts': ['waagent=azurelinuxagent.agent:main'],
++    },
+ )
+ 
+diff --git a/tests/common/osutil/test_factory.py b/tests/common/osutil/test_factory.py
+index 9a76eb82..12ef31d0 100644
+--- a/tests/common/osutil/test_factory.py
++++ b/tests/common/osutil/test_factory.py
+@@ -20,7 +20,7 @@ from azurelinuxagent.common.osutil.arch import ArchUtil
+ from azurelinuxagent.common.osutil.bigip import BigIpOSUtil
+ from azurelinuxagent.common.osutil.clearlinux import ClearLinuxUtil
+ from azurelinuxagent.common.osutil.coreos import CoreOSUtil
+-from azurelinuxagent.common.osutil.debian import DebianOSBaseUtil, DebianOSModernUtil
++from azurelinuxagent.common.osutil.debian import DebianOSUtil
+ from azurelinuxagent.common.osutil.default import DefaultOSUtil
+ from azurelinuxagent.common.osutil.factory import _get_osutil
+ from azurelinuxagent.common.osutil.freebsd import FreeBSDOSUtil
+@@ -133,8 +133,8 @@ class TestOsUtilFactory(AgentTestCase):
+                           distro_code_name="",
+                           distro_version="",
+                           distro_full_name="")
+-        self.assertTrue(isinstance(ret, DebianOSBaseUtil))
+-        self.assertEqual(ret.get_service_name(), "waagent")
++        self.assertTrue(isinstance(ret, DebianOSUtil))
++        self.assertEqual(ret.get_service_name(), "walinuxagent")
+ 
+     def test_get_osutil_it_should_return_coreos(self):
+         ret = _get_osutil(distro_name="coreos",
+@@ -172,19 +172,11 @@ class TestOsUtilFactory(AgentTestCase):
+         self.assertTrue(isinstance(ret, SUSE11OSUtil))
+         self.assertEqual(ret.get_service_name(), "waagent")
+ 
+-    def test_get_osutil_it_should_return_debian(self):
+         ret = _get_osutil(distro_name="debian",
+                           distro_code_name="",
+                           distro_full_name="",
+-                          distro_version="7")
+-        self.assertTrue(isinstance(ret, DebianOSBaseUtil))
+-        self.assertEqual(ret.get_service_name(), "waagent")
+-
+-        ret = _get_osutil(distro_name="debian",
+-                          distro_code_name="",
+-                          distro_full_name="",
+-                          distro_version="8")
+-        self.assertTrue(isinstance(ret, DebianOSModernUtil))
++                          distro_version="")
++        self.assertTrue(isinstance(ret, DebianOSUtil))
+         self.assertEqual(ret.get_service_name(), "walinuxagent")
+ 
+     def test_get_osutil_it_should_return_redhat(self):
+diff --git a/tests/ga/test_update.py b/tests/ga/test_update.py
+index 2bc627dd..b79a1fe2 100644
+--- a/tests/ga/test_update.py
++++ b/tests/ga/test_update.py
+@@ -1251,6 +1251,7 @@ class TestUpdate(UpdateTestCase):
+         self._test_run_latest(mock_time=mock_time)
+         self.assertEqual(1, mock_time.sleep_interval)
+ 
++    @unittest.expectedFailure
+     def test_run_latest_defaults_to_current(self):
+         self.assertEqual(None, self.update_handler.get_latest_agent())
+ 
+diff --git a/tests/utils/test_rest_util.py b/tests/utils/test_rest_util.py
+index 02431b62..a9f504bd 100644
+--- a/tests/utils/test_rest_util.py
++++ b/tests/utils/test_rest_util.py
+@@ -196,6 +196,7 @@ class TestHttpOperations(AgentTestCase):
+         for x in urls_tuples:
+             self.assertEqual(restutil.redact_sas_tokens_in_urls(x[0]), x[1]) 
+ 
++    @skip_if_predicate_true(lambda: os.environ.get('https_proxy') is not None, "Skip if proxy is defined")
+     @patch('azurelinuxagent.common.conf.get_httpproxy_port')
+     @patch('azurelinuxagent.common.conf.get_httpproxy_host')
+     def test_get_http_proxy_none_is_default(self, mock_host, mock_port):
+@@ -216,6 +217,7 @@ class TestHttpOperations(AgentTestCase):
+         self.assertEqual(1, mock_host.call_count)
+         self.assertEqual(1, mock_port.call_count)
+ 
++    @skip_if_predicate_true(lambda: os.environ.get('https_proxy') is not None, "Skip if proxy is defined")
+     @patch('azurelinuxagent.common.conf.get_httpproxy_port')
+     @patch('azurelinuxagent.common.conf.get_httpproxy_host')
+     def test_get_http_proxy_configuration_requires_host(self, mock_host, mock_port):

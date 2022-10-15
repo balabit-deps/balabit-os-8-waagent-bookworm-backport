@@ -1,0 +1,42 @@
+Source: waagent
+Section: admin
+Priority: optional
+Maintainer: Bastian Blank <bastian.blank@credativ.de>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-sequence-python3,
+ python3,
+ python3-distro,
+ python3-setuptools,
+Standards-Version: 3.9.6
+Homepage: https://github.com/Azure/WALinuxAgent
+Vcs-Browser: https://salsa.debian.org/waldi/waagent
+Vcs-Git: https://salsa.debian.org/waldi/waagent.git
+
+Package: waagent
+Architecture: all
+Depends:
+ ${misc:Depends}, ${python3:Depends},
+ python3-pkg-resources,
+ ca-certificates,
+ openssl,
+Suggests:
+ cloud-init,
+ eject,
+ fdisk | util-linux (<< 2.29.2-3~),
+ iptables,
+ openssh-server,
+ parted,
+ sudo,
+Conflicts: network-manager, walinuxagent
+Description: Windows Azure Linux Agent
+ The Windows Azure Linux Agent (waagent) manages VM interaction with the Windows
+ Azure Fabric Controller. It provides the following functionality for IaaS 
+ deployments:
+ .
+  * VM Extension
+    - Inject component authored by Microsoft and Partners into Linux VM (IaaS)
+      to enable software and configuration automation
+      see https://github.com/Azure/azure-linux-extensions
+ .
+ Provisioning is done by cloud-init.
