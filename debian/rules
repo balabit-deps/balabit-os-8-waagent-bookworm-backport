@@ -21,7 +21,7 @@ override_dh_auto_clean:
 	rm -rf AzureLinuxAgent.egg-info
 
 override_dh_installinit:
-	dh_installinit -p waagent --name walinuxagent
+	dh_installinit -p waagent-bookworm-backport --name walinuxagent
 
 override_dh_installsystemd:
-	dh_installsystemd -p waagent --name walinuxagent
+	dh_installsystemd -p waagent-bookworm-backport --name walinuxagent

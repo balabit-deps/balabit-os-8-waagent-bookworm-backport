@@ -1,4 +1,4 @@
-Source: waagent
+Source: waagent-bookworm-backport
 Section: admin
 Priority: optional
 Maintainer: Bastian Blank <bastian.blank@credativ.de>
@@ -13,7 +13,7 @@ Homepage: https://github.com/Azure/WALinuxAgent
 Vcs-Browser: https://salsa.debian.org/waldi/waagent
 Vcs-Git: https://salsa.debian.org/waldi/waagent.git
 
-Package: waagent
+Package: waagent-bookworm-backport
 Architecture: all
 Depends:
  ${misc:Depends}, ${python3:Depends},
@@ -28,7 +28,7 @@ Suggests:
  openssh-server,
  parted,
  sudo,
-Conflicts: network-manager, walinuxagent
+Conflicts: network-manager, walinuxagent, waagent
 Description: Windows Azure Linux Agent
  The Windows Azure Linux Agent (waagent) manages VM interaction with the Windows
  Azure Fabric Controller. It provides the following functionality for IaaS 
