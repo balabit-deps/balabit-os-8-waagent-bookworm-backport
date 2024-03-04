@@ -6,6 +6,8 @@ ConditionVirtualization=microsoft
 [Service]
 Type=exec
 ExecStart=/usr/sbin/waagent -daemon
+Slice=azure.slice
+CPUAccounting=yes
 
 [Install]
 WantedBy=multi-user.target
