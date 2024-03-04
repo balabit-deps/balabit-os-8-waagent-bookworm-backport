@@ -1,5 +1,5 @@
 [Unit]
-Description=Microsft Azure Linux Agent
+Description=Azure Linux Agent
 After=multi-user.target
 ConditionVirtualization=microsoft
 
