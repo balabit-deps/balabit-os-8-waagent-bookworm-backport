@@ -1,3 +1,9 @@
+waagent-bookworm-backport (2.7.3.0-4.1bb2) jammy; urgency=medium
+
+  * Balabit patched version
+
+ -- Balabit Platform Team <devnull@dev.null>  Wed, 06 Mar 2024 11:42:42 +0100
+
 waagent-bookworm-backport (2.7.3.0-4.1bb1) jammy; urgency=medium
 
   * debian/control: include package origin into its name
