@@ -1,1 +1,2 @@
 debian/azure-walinuxagent-logcollector.slice lib/systemd/system
+debian/12-CPUQuota.conf lib/systemd/system/walinuxagent.service.d
